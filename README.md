@@ -1,4 +1,4 @@
-<p style="text-align: center; font-size:3rem;"> 🔐 FileGuard </p>
+<h1 align="center">🔐 FileGuard</h1>
 
 **FileGuard** is a minimal and secure file encryption and decryption library written in Go. It also includes an optional command-line tool 🖥️.
 
