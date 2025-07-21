@@ -23,3 +23,5 @@ func TestEncryptDecrypt(t *testing.T) {
 		t.Errorf("Decrypted text doesn't match. Got %s, expected %s", decrypted, data)
 	}
 }
+
+// func TestEncryptDecryptFile(t *testing.T) {}
