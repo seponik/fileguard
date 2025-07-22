@@ -11,9 +11,6 @@ import (
 	"strings"
 )
 
-// TODO:
-// 1. Check file exist (EncryptFile & DecryptFile)
-
 // processKey returns a 32-byte hash of the input key to make sure key length is valid.
 // This helps if the user gives a key that is too short or too long.
 func processKey(key string) []byte {
@@ -65,6 +62,8 @@ func decrypt(data []byte, key string) ([]byte, error) {
 	return gcm.Open(nil, nonce, ciphertext, nil)
 }
 
+// EncryptFile encrypts the given file using encrypt function.
+// Returns error if encryption fails.
 func EncryptFile(filePath, key string) error {
 	originalData, err := os.ReadFile(filePath)
 	if err != nil {
@@ -76,9 +75,13 @@ func EncryptFile(filePath, key string) error {
 		return err
 	}
 
-	return os.WriteFile(filePath+".fg", encryptedData, 0664)
+	// WARNING: Modifying the encrypted file will break the authentication system.
+	// Even a small change will cause decryption to fail.
+	return os.WriteFile(filePath+".fg", encryptedData, 0444)
 }
 
+// DecryptFile decrypts the given file using decrypt function.
+// Returns error if decryption fails.
 func DecryptFile(filePath, key string) error {
 	encryptedData, err := os.ReadFile(filePath)
 	if err != nil {
