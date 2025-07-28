@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-// fileguardPayload is is salt + nonce + ciphertext.
+// fileguardPayload is salt + nonce + ciphertext.
 
 const (
 	NonceSize = 12 // Size of the nonce in bytes (used for AES-GCM)
@@ -75,12 +75,12 @@ func encrypt(plaintext []byte, key string) ([]byte, error) {
 	return fileguardPayload, nil
 }
 
-// decrypt decrypts the given fileguardPayload (salt + nonce + ciphertext) using AES-GCM with given key.
-// The input must start with 12-byte nonce followed by the ciphertext.
+// decrypt decrypts the given fileguardPayload (salt + nonce + ciphertext) using AES-GCM with the given key.
+// The input must start with a 16-byte salt, followed by a 12-byte nonce, and then the ciphertext.
 // Returns the plaintext or an error if decryption fails.
 func decrypt(fileguardPayload []byte, key string) ([]byte, error) {
-	if len(fileguardPayload) < NonceSize {
-		return nil, errors.New("decrypt: input data is too short; expected at least 12 bytes for nonce and ciphertext")
+	if len(fileguardPayload) < SaltSize+NonceSize {
+		return nil, errors.New("decrypt: input data is too short; expected at least 28 bytes for salt, nonce, and ciphertext")
 	}
 
 	salt, nonce, ciphertext := fileguardPayload[:SaltSize], fileguardPayload[SaltSize:SaltSize+NonceSize], fileguardPayload[SaltSize+NonceSize:]
