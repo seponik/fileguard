@@ -32,9 +32,15 @@ func main() {
 
 	switch {
 	case *encrypt:
-		fileguard.EncryptFile(file, key)
+		err := fileguard.EncryptFile(file, key)
+		if err != nil {
+			fmt.Println(err)
+		}
 	case *decrypt:
-		fileguard.DecryptFile(file, key)
+		err := fileguard.DecryptFile(file, key)
+		if err != nil {
+			fmt.Println(err)
+		}
 	default:
 		flag.Usage()
 		return
