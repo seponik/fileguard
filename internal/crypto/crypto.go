@@ -4,24 +4,56 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha256"
 	"errors"
-	"io"
 	"os"
 	"strings"
+
+	"golang.org/x/crypto/argon2"
 )
 
-// processKey returns a 32-byte hash of the input key to make sure key length is valid.
-// This helps if the user gives a key that is too short or too long.
-func processKey(key string) []byte {
-	hash := sha256.Sum256([]byte(key))
-	return hash[:]
+// fileguardPayload is salt + nonce + ciphertext.
+
+const (
+	NonceSize = 12 // Size of the nonce in bytes (used for AES-GCM)
+	SaltSize  = 16 // Size of the salt in bytes (used for Argon2id)
+)
+
+// generateRandomBytes returns a slice of securely generated random bytes with the specified length.
+// Returns an error if the random byte generation fails.
+func generateRandomBytes(length int) ([]byte, error) {
+	randomBytes := make([]byte, length)
+
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return randomBytes, nil
+}
+
+// hashKey securely hashes the given key with Argon2id.
+// This ensures the key length is valid, even if it’s too short or too long.
+// Returns a 32-byte hash or an error if hashing fails.
+func hashKey(key string, salt []byte) ([]byte, error) {
+	keyHash := argon2.IDKey([]byte(key), salt, 3, 64*1024, 2, 32)
+
+	return keyHash, nil
 }
 
 // encrypt encrypts the give data using AES-GCM with the given key.
-// Returns the combined nonce and ciphertext, or an error if encryption fails.
-func encrypt(data []byte, key string) ([]byte, error) {
-	block, err := aes.NewCipher(processKey(key))
+// Returns the combined salt, nonce ciphertext (fileguardPayload), or an error if encryption fails.
+func encrypt(plaintext []byte, key string) ([]byte, error) {
+	keySalt, err := generateRandomBytes(SaltSize)
+	if err != nil {
+		return nil, err
+	}
+
+	derivedKey, err := hashKey(key, keySalt)
+	if err != nil {
+		return nil, err
+	}
+
+	block, err := aes.NewCipher(derivedKey)
 	if err != nil {
 		return nil, err
 	}
@@ -31,23 +63,34 @@ func encrypt(data []byte, key string) ([]byte, error) {
 		return nil, err
 	}
 
-	nonce := make([]byte, 12)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+	nonce, err := generateRandomBytes(NonceSize)
+	if err != nil {
 		return nil, err
 	}
 
-	return gcm.Seal(nonce, nonce, data, nil), nil
+	cipherText := gcm.Seal(nil, nonce, plaintext, nil)
+
+	fileguardPayload := append(append(keySalt, nonce...), cipherText...)
+
+	return fileguardPayload, nil
 }
 
-// decrypt decrypts the given data using AES-GCM with given key.
-// The input must start with 12-byte nonce followed by the ciphertext.
-// Returns the original data or an error if decryption fails.
-func decrypt(data []byte, key string) ([]byte, error) {
-	if len(data) < 12 {
-		return nil, errors.New("decrypt: input data is too short; expected at least 12 bytes for nonce and ciphertext")
+// decrypt decrypts the given fileguardPayload (salt + nonce + ciphertext) using AES-GCM with the given key.
+// The input must start with a 16-byte salt, followed by a 12-byte nonce, and then the ciphertext.
+// Returns the plaintext or an error if decryption fails.
+func decrypt(fileguardPayload []byte, key string) ([]byte, error) {
+	if len(fileguardPayload) < SaltSize+NonceSize {
+		return nil, errors.New("decrypt: input data is too short; expected at least 28 bytes for salt, nonce, and ciphertext")
 	}
 
-	block, err := aes.NewCipher(processKey(key))
+	salt, nonce, ciphertext := fileguardPayload[:SaltSize], fileguardPayload[SaltSize:SaltSize+NonceSize], fileguardPayload[SaltSize+NonceSize:]
+
+	derivedKey, err := hashKey(key, salt)
+	if err != nil {
+		return nil, err
+	}
+
+	block, err := aes.NewCipher(derivedKey)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +99,6 @@ func decrypt(data []byte, key string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	nonce, ciphertext := data[:12], data[12:]
 
 	return gcm.Open(nil, nonce, ciphertext, nil)
 }
@@ -65,33 +106,33 @@ func decrypt(data []byte, key string) ([]byte, error) {
 // EncryptFile encrypts the given file using encrypt function.
 // Returns error if encryption fails.
 func EncryptFile(filePath, key string) error {
-	originalData, err := os.ReadFile(filePath)
+	plaintext, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
 
-	encryptedData, err := encrypt(originalData, key)
+	fileguardPayload, err := encrypt(plaintext, key)
 	if err != nil {
 		return err
 	}
 
 	// WARNING: Modifying the encrypted file will break the authentication system.
 	// Even a small change will cause decryption to fail.
-	return os.WriteFile(filePath+".fg", encryptedData, 0444)
+	return os.WriteFile(filePath+".fg", fileguardPayload, 0444)
 }
 
 // DecryptFile decrypts the given file using decrypt function.
 // Returns error if decryption fails.
 func DecryptFile(filePath, key string) error {
-	encryptedData, err := os.ReadFile(filePath)
+	fileguardPayload, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
 
-	originalData, err := decrypt(encryptedData, key)
+	plaintext, err := decrypt(fileguardPayload, key)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(strings.Replace(filePath, ".fg", "", 1), originalData, 0664)
+	return os.WriteFile(strings.Replace(filePath, ".fg", "", 1), plaintext, 0664)
 }
